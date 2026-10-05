@@ -28,7 +28,7 @@ One-page A4 school notice layout tool with Zhuyin (Bopomofo) support.
 ### 怎麼用
 
 **線上使用**：打開 https://goodthingsjpg.github.io/SSP/ 即可。
-第一次打開注音模式時會下載注音字型（約 7MB），之後瀏覽器會記住，就不用再等。
+打開注音模式時，只會下載這張通知單用得到的字（一般通知單約 1MB），之後瀏覽器會記住，就不用再等。
 
 **離線使用**：下載 `ssp-offline.html`，用 Chrome 開啟。字型已全部內嵌，沒有網路也能用。
 
@@ -79,8 +79,9 @@ npm run build        # → index.html + assets/ + ssp-offline.html
 | 路徑 | 說明 |
 |---|---|
 | `src/template.html` | 主程式（HTML / CSS / JS） |
-| `tools/build.py` | 產生網頁版 `index.html`（字型放 `assets/`）與離線單檔版 `ssp-offline.html` |
+| `tools/build.py` | 產生網頁版 `index.html`（字型依字頻切成小塊放 `assets/`）與離線單檔版 `ssp-offline.html` |
 | `tools/build_plain.py` | 從注音字型抽出「不含注音」的楷體字形，用於破音字校正 |
+| `tools/char_freq_tw.txt` | 繁體中文字頻表（常用字在前），用來把字型切成小塊 |
 | `tools/plain_chars.txt` | 楷體子集的字表（Big5 常用字 + 破音字） |
 | `fonts/` | 王漢宗中楷體注音原始字型 |
 

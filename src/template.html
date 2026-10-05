@@ -7,33 +7,22 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <!-- 非同步載入：不擋住畫面顯示，載入前先用系統內建黑體 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 
     <!-- Tailwind（已預先編譯，離線也能用） -->
     <style>__TW_CSS__</style>
 
     <style>
-        /* 王漢宗中楷體注音（GPL）：每個字的右側內建注音，字寬 1.5em */
-        @font-face {
-            font-family: 'CustomPhoneticFont';
-            src: url('data:font/woff2;base64,__HW_FONT__') format('woff2');
-            font-weight: normal;
-            font-style: normal;
-            font-display: block;
-        }
-        /* 同一套字型去掉注音的版本（只含常見破音字與注音符號），用來畫「校正後」的字 */
-        @font-face {
-            font-family: 'HWKaiPlain';
-            src: url('data:font/woff2;base64,__PLAIN_FONT__') format('woff2');
-            font-weight: normal;
-            font-style: normal;
-            font-display: block;
-        }
+        /* 王漢宗中楷體注音（GPL）：每個字的右側內建注音，字寬 1.5em。
+           HWKaiPlain：同一套字型去掉注音的版本，用來畫「校正後」的字。
+           網頁版把字型切成很多小塊（unicode-range），瀏覽器只下載用得到的字。 */
+__FONT_FACES__
 
         :root { --base-font-size: 16px; }
 
         body {
-            font-family: 'Noto Sans TC', sans-serif;
+            font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Heiti TC', sans-serif;
             background-color: #f3f4f6;
             margin: 0;
             padding: 0;
@@ -59,10 +48,10 @@
         .card-container {
             font-size: var(--base-font-size);
             break-inside: avoid;
-            font-family: 'Noto Sans TC', sans-serif;
+            font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Heiti TC', sans-serif;
         }
         .phonetic-on .card-container {
-            font-family: 'CustomPhoneticFont', 'HWKaiPlain', 'Noto Sans TC', sans-serif;
+            font-family: 'CustomPhoneticFont', 'HWKaiPlain', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Heiti TC', sans-serif;
         }
 
         .card-title   { font-size: 1.4em; line-height: 1.4; }
@@ -550,6 +539,7 @@
             return tokens.map(tok => {
                 if (tok.t !== undefined) return escapeHTML(tok.t).replace(/\[\]/g, '☐');
                 if (!ctx.phonetic) return escapeHTML(tok.ch);   // 非注音模式：只留字，拿掉括號注音
+                ctx.zyChars += tok.ch;
                 return zhuyinHTML(tok.ch, tok.zy);
             }).join('');
         }
@@ -623,7 +613,7 @@
             const myToken = ++renderToken;
             const layout = getLayout();
             const phonetic = els.chkPhonetic.checked;
-            const ctx = { phonetic, autofix: els.chkAutofix.checked, report: {} };
+            const ctx = { phonetic, autofix: els.chkAutofix.checked, report: {}, zyChars: '' };
 
             els.phoneticOptions.classList.toggle('hidden', !phonetic);
 
@@ -633,6 +623,25 @@
             const hasReply = rawReply && rawReply !== '無';
             const replyStr = hasReply ? formatText(rawReply, ctx) : '';
             const signStr = formatText(els.sign.value, ctx);
+
+            // 注音模式：先把需要的字型下載好，再更新畫面（避免出現半套的畫面）
+            if (phonetic) {
+                const allText = els.title.value + els.content.value + rawReply + els.sign.value;
+                const sample = Array.from(new Set(Array.from(allText))).join('') || '注';
+                const plainSample = (ctx.zyChars || '長') + 'ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩˊˇˋ˙';
+                const ready = document.fonts.check('16px CustomPhoneticFont', sample) && document.fonts.check('16px HWKaiPlain', plainSample);
+                if (!ready) {
+                    els.fontLoading.classList.remove('hidden');
+                    try {
+                        await Promise.all([
+                            document.fonts.load('16px CustomPhoneticFont', sample),
+                            document.fonts.load('16px HWKaiPlain', plainSample)
+                        ]);
+                    } catch (e) {}
+                    els.fontLoading.classList.add('hidden');
+                    if (myToken !== renderToken) return;
+                }
+            }
 
             const gridClass = {
                 1: 'grid-cols-1 grid-rows-1',
@@ -677,21 +686,7 @@
                 els.zyReport.classList.add('hidden');
             }
 
-            // 等字型載入完再量尺寸
-            if (phonetic) {
-                const sample = (els.title.value + els.content.value + els.reply.value + els.sign.value).slice(0, 200) || '注';
-                const needLoad = !document.fonts.check(`16px CustomPhoneticFont`, sample);
-                if (needLoad) els.fontLoading.classList.remove('hidden');
-                try {
-                    await Promise.all([
-                        document.fonts.load(`16px CustomPhoneticFont`, sample),
-                        document.fonts.load(`16px HWKaiPlain`, '長ㄓㄤˇ')
-                    ]);
-                } catch (e) {}
-                els.fontLoading.classList.add('hidden');
-                if (myToken !== renderToken) return;
-                fillZhuyinImages();
-            }
+            if (phonetic) fillZhuyinImages();
 
             const { px, overflow } = fitFontSize(layout);
             els.lblFontSize.textContent = px + 'px';
@@ -720,7 +715,22 @@
                 await renderPreview();
                 await document.fonts.ready;
                 const el = els.canvas;
-                const jpeg = await modernScreenshot.domToJpeg(el, {
+                // 匯出前暫時拿掉「還沒下載過」的字型分塊，避免匯出時把整套字型都抓下來；匯出後再放回去
+                const loaded = new Set(performance.getEntriesByType('resource')
+                    .map(x => (x.name.match(/assets\/[^/?#]+\.woff2/) || [])[0]).filter(Boolean));
+                const removed = [];
+                for (const sheet of document.styleSheets) {
+                    let rules; try { rules = sheet.cssRules; } catch (_) { continue; }   // 跨網域樣式表讀不到，略過
+                    for (let i = rules.length - 1; i >= 0; i--) {
+                        const r = rules[i];
+                        if (!(r instanceof CSSFontFaceRule)) continue;
+                        const m = r.style.getPropertyValue('src').match(/assets\/[^'")]+\.woff2/);
+                        if (m && !loaded.has(m[0])) { removed.push([sheet, i, r.cssText]); sheet.deleteRule(i); }
+                    }
+                }
+                let jpeg;
+                try {
+                jpeg = await modernScreenshot.domToJpeg(el, {
                     scale: 3,                 // 約 290 dpi，印出來文字清楚
                     quality: 0.92,
                     backgroundColor: '#ffffff',
@@ -729,6 +739,9 @@
                     style: { transform: 'none', boxShadow: 'none', position: 'static' },
                     onCloneNode: (clone) => clone.classList.add('exporting')
                 });
+                } finally {
+                    for (const [sheet, i, css] of removed.reverse()) sheet.insertRule(css, i);
+                }
                 const { jsPDF } = window.jspdf;
                 const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
                 pdf.addImage(jpeg, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
