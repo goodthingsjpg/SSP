@@ -1,0 +1,15 @@
+{
+  "name": "ssp",
+  "version": "1.0.0",
+  "description": "伸手排 ShenShouPai (SSP) — one-page A4 school notice layout tool with Zhuyin support",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "build": "tailwindcss -i src/tailwind.css -o build/tw.css --minify && python3 tools/build.py"
+  },
+  "devDependencies": {
+    "jspdf": "2.5.2",
+    "modern-screenshot": "4.7.0",
+    "tailwindcss": "^3.4.19"
+  }
+}

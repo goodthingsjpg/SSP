@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>伸手排｜通知單排版</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <!-- Tailwind（已預先編譯，離線也能用） -->
+    <style>__TW_CSS__</style>
+
+    <style>
+        /* 王漢宗中楷體注音（GPL）：每個字的右側內建注音，字寬 1.5em */
+        @font-face {
+            font-family: 'CustomPhoneticFont';
+            src: url('data:font/woff2;base64,__HW_FONT__') format('woff2');
+            font-weight: normal;
+            font-style: normal;
+            font-display: block;
+        }
+        /* 同一套字型去掉注音的版本（只含常見破音字與注音符號），用來畫「校正後」的字 */
+        @font-face {
+            font-family: 'HWKaiPlain';
+            src: url('data:font/woff2;base64,__PLAIN_FONT__') format('woff2');
+            font-weight: normal;
+            font-style: normal;
+            font-display: block;
+        }
+
+        :root { --base-font-size: 16px; }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        /* 預覽區 A4 */
+        #a4-sizer { flex-shrink: 0; position: relative; }
+        .a4-page {
+            width: 210mm;
+            height: 297mm;
+            background-color: white;
+            padding: 8mm;
+            box-sizing: border-box;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            display: grid;
+            gap: 5mm;
+            transform-origin: top left;
+            position: absolute;
+            top: 0; left: 0;
+        }
+
+        .card-container {
+            font-size: var(--base-font-size);
+            break-inside: avoid;
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        .phonetic-on .card-container {
+            font-family: 'CustomPhoneticFont', 'HWKaiPlain', 'Noto Sans TC', sans-serif;
+        }
+
+        .card-title   { font-size: 1.4em; line-height: 1.4; }
+        .card-content { font-size: 1em;   line-height: 1.8; }
+        .card-reply   { font-size: 0.9em; line-height: 1.7; }
+        .phonetic-on .card-content { line-height: 1.65; }
+
+        /* ===== 破音字校正：字 + 自畫注音欄，總寬 1.5em，與注音字型對齊 ===== */
+        .zy { white-space: nowrap; }
+        .zy-ch {
+            font-family: 'HWKaiPlain', 'BiauKai', 'DFKai-SB', 'Kaiti TC', 'STKaiti', serif;
+        }
+        /* 每個注音符號都用絕對定位（em 單位），預覽、列印、匯出 PDF 都一致 */
+        /* 注音欄畫成圖片（canvas），預覽、列印、匯出 PDF 位置完全一致 */
+        .zy-img {
+            display: inline-block;
+            width: 0.5em;
+            height: 1.074em;          /* 1100/1024 */
+            vertical-align: -0.195em; /* 圖片下緣在基線下 200/1024 */
+            max-width: none;
+            pointer-events: none;
+        }
+        .zy-warn { outline: 1.5px dashed #f59e0b; outline-offset: 1px; border-radius: 2px; }
+
+        /* ===== 匯出 PDF 時的截圖狀態 ===== */
+        .exporting .zy-warn { outline: none !important; }
+        .exporting.a4-page { transform: none !important; box-shadow: none !important; }
+
+        /* ===== 列印 ===== */
+        @page { size: A4 portrait; margin: 0; }
+        @media print {
+            html, body {
+                width: 210mm;
+                height: 297mm;
+                overflow: hidden !important;
+                display: block !important;
+                background: white !important;
+            }
+            #ui-panel, #overflow-warning, .print-hidden { display: none !important; }
+            #preview-panel, #preview-wrapper, #a4-sizer {
+                display: block !important;
+                position: static !important;
+                width: auto !important;
+                height: auto !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+                background: none !important;
+            }
+            .a4-page {
+                position: static !important;
+                width: 210mm !important;
+                height: 296mm !important;   /* 留 1mm 避免印表機多跳一頁空白 */
+                padding: 8mm !important;
+                box-shadow: none !important;
+                transform: none !important;
+                page-break-after: avoid;
+            }
+            .zy-warn { outline: none !important; }
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color: black !important;
+            }
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col md:flex-row">
+
+    <aside id="ui-panel" class="w-full md:w-[420px] bg-white border-r border-gray-200 flex flex-col h-full z-10 shadow-lg shrink-0">
+        <div class="p-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <h1 class="text-xl font-black text-gray-800 flex items-center gap-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                伸手排
+            </h1>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-5 space-y-6">
+
+            <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                <label class="block text-sm font-bold text-blue-900 mb-2">一鍵貼上解析 (格式：標題/內容/回條/署名)</label>
+                <textarea id="quick-input" rows="3" class="w-full p-2 border border-blue-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none" placeholder="貼上完整文字後會自動帶入下方欄位..."></textarea>
+            </div>
+
+            <hr class="border-gray-200">
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">標題</label>
+                    <input type="text" id="field-title" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">內容</label>
+                    <textarea id="field-content" rows="6" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand focus:outline-none resize-y"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">回條 <span class="text-xs font-normal text-gray-500">(填寫「無」即可隱藏；輸入 [] 會變成 ☐)</span></label>
+                    <textarea id="field-reply" rows="2" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand focus:outline-none resize-y"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">署名</label>
+                    <input type="text" id="field-sign" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand focus:outline-none">
+                </div>
+            </div>
+
+            <hr class="border-gray-200">
+
+            <div class="space-y-5">
+                <!-- 注音模式 -->
+                <div class="bg-gray-50 p-3.5 rounded-xl border border-gray-200 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="block text-sm font-bold text-gray-800">注音模式</span>
+                            <span class="block text-xs text-gray-500">使用王漢宗中楷體注音，字旁直接印注音</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="setting-phonetic" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
+                        </label>
+                    </div>
+
+                    <div id="phonetic-options" class="space-y-2 hidden">
+                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                            <input type="checkbox" id="setting-autofix" class="accent-brand" checked>
+                            自動校正常見破音字（家長、放假、音樂…）
+                        </label>
+                        <div class="text-xs text-gray-600 bg-white border border-gray-200 rounded-lg p-2 leading-relaxed">
+                            字型只有一種讀音，讀錯的字請在字後面加括號注音：<br>
+                            <code class="bg-gray-100 px-1 rounded">長(ㄓㄤˇ)</code>　<code class="bg-gray-100 px-1 rounded">了(˙ㄌㄜ)</code>　全形括號也可以
+                        </div>
+                        <div id="zy-report" class="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed hidden"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">A4 版面配置</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="cursor-pointer border border-gray-300 rounded-lg p-2 flex items-center gap-2 hover:bg-gray-50 has-[:checked]:border-brand has-[:checked]:bg-gray-100 has-[:checked]:ring-1 has-[:checked]:ring-brand transition-all">
+                            <input type="radio" name="layout" value="1" class="hidden">
+                            <div class="w-4 h-5 border border-gray-400 rounded-sm bg-white"></div>
+                            <span class="text-sm">1 張 / 頁</span>
+                        </label>
+                        <label class="cursor-pointer border border-gray-300 rounded-lg p-2 flex items-center gap-2 hover:bg-gray-50 has-[:checked]:border-brand has-[:checked]:bg-gray-100 has-[:checked]:ring-1 has-[:checked]:ring-brand transition-all">
+                            <input type="radio" name="layout" value="2" class="hidden" checked>
+                            <div class="w-4 h-5 border border-gray-400 rounded-sm flex flex-col gap-[1px] bg-white"><div class="h-1/2 border-b border-gray-400"></div></div>
+                            <span class="text-sm">2 張 / 頁 (上下)</span>
+                        </label>
+                        <label class="cursor-pointer border border-gray-300 rounded-lg p-2 flex items-center gap-2 hover:bg-gray-50 has-[:checked]:border-brand has-[:checked]:bg-gray-100 has-[:checked]:ring-1 has-[:checked]:ring-brand transition-all">
+                            <input type="radio" name="layout" value="4" class="hidden">
+                            <div class="w-4 h-5 border border-gray-400 rounded-sm grid grid-cols-2 grid-rows-2 gap-[1px] bg-white">
+                                <div class="border-r border-b border-gray-400"></div><div class="border-b border-gray-400"></div>
+                                <div class="border-r border-gray-400"></div><div></div>
+                            </div>
+                            <span class="text-sm">4 張 / 頁 (2×2)</span>
+                        </label>
+                        <label class="cursor-pointer border border-gray-300 rounded-lg p-2 flex items-center gap-2 hover:bg-gray-50 has-[:checked]:border-brand has-[:checked]:bg-gray-100 has-[:checked]:ring-1 has-[:checked]:ring-brand transition-all">
+                            <input type="radio" name="layout" value="6" class="hidden">
+                            <div class="w-4 h-5 border border-gray-400 rounded-sm grid grid-cols-2 grid-rows-3 gap-[1px] bg-white">
+                                <div class="border-r border-b border-gray-400"></div><div class="border-b border-gray-400"></div>
+                                <div class="border-r border-b border-gray-400"></div><div class="border-b border-gray-400"></div>
+                                <div class="border-r border-gray-400"></div><div></div>
+                            </div>
+                            <span class="text-sm">6 張 / 頁 (2×3)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">小圖示選擇</label>
+                    <select id="setting-icon" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand focus:outline-none bg-white">
+                        <option value="none">無 (純文字)</option>
+                        <option value="📚" selected>書本 📚</option>
+                        <option value="✏️">鉛筆 ✏️</option>
+                        <option value="⭐">星星 ⭐</option>
+                        <option value="🍃">小葉子 🍃</option>
+                        <option value="🎒">書包 🎒</option>
+                        <option value="🏫">學校 🏫</option>
+                        <option value="🍎">蘋果 🍎</option>
+                        <option value="🏆">獎盃 🏆</option>
+                        <option value="💡">燈泡 💡</option>
+                        <option value="📢">公告 📢</option>
+                        <option value="📌">圖釘 📌</option>
+                    </select>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="flex items-center justify-between text-sm font-bold text-gray-700">
+                        <span class="flex items-center gap-2">
+                            <input type="checkbox" id="setting-autofit" class="accent-brand" checked>
+                            自動調整字級塞滿一格
+                        </span>
+                        <span id="font-size-label" class="text-gray-500 font-normal">16px</span>
+                    </label>
+                    <input type="range" id="setting-font-size" min="7" max="30" step="0.5" value="16" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand disabled:opacity-40">
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span>小</span>
+                        <span id="font-size-hint">自動模式下由系統計算</span>
+                        <span>大</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-5 border-t border-gray-200 bg-gray-50">
+            <div class="grid grid-cols-2 gap-2">
+                <button id="btn-pdf" onclick="downloadPDF()" class="bg-brand hover:bg-black text-white font-bold py-3 px-4 rounded-xl shadow-lg transition-transform transform active:scale-95 flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-wait">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span id="btn-pdf-text">下載 PDF</span>
+                </button>
+                <button onclick="window.print()" class="bg-white hover:bg-gray-100 text-gray-800 border-2 border-brand font-bold py-3 px-4 rounded-xl transition-transform transform active:scale-95 flex justify-center items-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                    直接列印
+                </button>
+            </div>
+            <p class="text-xs text-gray-500 text-center mt-3 font-medium">PDF 已是 A4 尺寸，列印時選「實際大小」即可</p>
+            <p class="text-[11px] text-gray-500 text-center mt-2">made with ♡ by goodthings.jpg 2026.10</p>
+            <p class="text-[10px] text-gray-400 text-center mt-0.5">注音字型：王漢宗中楷體注音（GPL 授權）</p>
+        </div>
+    </aside>
+
+    <main id="preview-panel" class="flex-1 h-full bg-slate-200 relative overflow-hidden flex flex-col">
+
+        <div id="overflow-warning" class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold z-20 flex items-center gap-2 hidden">
+            <span>⚠️</span> <span id="overflow-text">內容過長，已超出邊界。</span>
+        </div>
+
+        <div id="font-loading" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full text-sm z-20 hidden">注音字型載入中…（第一次約需幾秒）</div>
+
+        <div id="preview-wrapper" class="flex-1 w-full h-full overflow-auto p-6 flex items-center justify-center">
+            <div id="a4-sizer">
+                <div id="a4-canvas" class="a4-page"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- PDF 匯出套件（modern-screenshot 4.7 / jsPDF 2.5.2，MIT，已內嵌可離線使用） -->
+    <script>__SHOT__</script>
+    <script>__JSPDF__</script>
+
+    <script>
+        // ================= 破音字詞庫 =================
+        // 字型裡每個字只有一種讀音。這裡列的是「字型預設讀音錯誤」的常見詞。
+        // 格式：'詞': '讀音|讀音'，每格對應一個字，空白代表沿用字型讀音。
+        const POLYPHONE_DICT = {
+            // 長 ㄔㄤˊ → ㄓㄤˇ
+            '家長':'|ㄓㄤˇ','校長':'|ㄓㄤˇ','班長':'|ㄓㄤˇ','組長':'|ㄓㄤˇ','會長':'|ㄓㄤˇ','師長':'|ㄓㄤˇ',
+            '學長':'|ㄓㄤˇ','成長':'|ㄓㄤˇ','長大':'ㄓㄤˇ|','生長':'|ㄓㄤˇ','首長':'|ㄓㄤˇ','部長':'|ㄓㄤˇ',
+            '市長':'|ㄓㄤˇ','院長':'|ㄓㄤˇ','處長':'ㄔㄨˋ|ㄓㄤˇ','科長':'|ㄓㄤˇ','股長':'|ㄓㄤˇ','隊長':'|ㄓㄤˇ',
+            '團長':'|ㄓㄤˇ','社長':'|ㄓㄤˇ','園長':'|ㄓㄤˇ','所長':'|ㄓㄤˇ','局長':'|ㄓㄤˇ','里長':'|ㄓㄤˇ',
+            '村長':'|ㄓㄤˇ','縣長':'|ㄓㄤˇ','年長':'|ㄓㄤˇ','長輩':'ㄓㄤˇ|','兄長':'|ㄓㄤˇ','長官':'ㄓㄤˇ|',
+            '長相':'ㄓㄤˇ|ㄒㄧㄤˋ','長處':'|ㄔㄨˋ',
+            // 重 ㄓㄨㄥˋ → ㄔㄨㄥˊ
+            '重新':'ㄔㄨㄥˊ|','重複':'ㄔㄨㄥˊ|','重來':'ㄔㄨㄥˊ|','重做':'ㄔㄨㄥˊ|','重寫':'ㄔㄨㄥˊ|','重考':'ㄔㄨㄥˊ|',
+            '重修':'ㄔㄨㄥˊ|','重播':'ㄔㄨㄥˊ|','重疊':'ㄔㄨㄥˊ|','重逢':'ㄔㄨㄥˊ|','重返':'ㄔㄨㄥˊ|','重建':'ㄔㄨㄥˊ|',
+            '重整':'ㄔㄨㄥˊ|','重申':'ㄔㄨㄥˊ|','雙重':'|ㄔㄨㄥˊ','重陽':'ㄔㄨㄥˊ|',
+            // 行 ㄒㄧㄥˊ → ㄏㄤˊ
+            '銀行':'|ㄏㄤˊ','行業':'ㄏㄤˊ|','行列':'ㄏㄤˊ|','排行':'|ㄏㄤˊ','內行':'|ㄏㄤˊ','外行':'|ㄏㄤˊ','行情':'ㄏㄤˊ|',
+            // 還 ㄏㄞˊ → ㄏㄨㄢˊ
+            '歸還':'|ㄏㄨㄢˊ','還書':'ㄏㄨㄢˊ|','償還':'|ㄏㄨㄢˊ','還款':'ㄏㄨㄢˊ|','退還':'|ㄏㄨㄢˊ','交還':'|ㄏㄨㄢˊ',
+            // 便
+            '便宜':'ㄆㄧㄢˊ|',
+            // 得 ㄉㄜˊ → ˙ㄉㄜ
+            '記得':'|˙ㄉㄜ','覺得':'|˙ㄉㄜ','懂得':'|˙ㄉㄜ','曉得':'|˙ㄉㄜ','值得':'|˙ㄉㄜ',
+            // 都 ㄉㄡ → ㄉㄨ
+            '首都':'|ㄉㄨ','都市':'ㄉㄨ|','都會':'ㄉㄨ|','古都':'|ㄉㄨ','京都':'|ㄉㄨ',
+            // 樂 ㄌㄜˋ → ㄩㄝˋ
+            '音樂':'|ㄩㄝˋ','樂器':'ㄩㄝˋ|','樂團':'ㄩㄝˋ|','樂曲':'ㄩㄝˋ|','樂隊':'ㄩㄝˋ|','樂譜':'ㄩㄝˋ|',
+            '樂章':'ㄩㄝˋ|','樂理':'ㄩㄝˋ|','管樂':'|ㄩㄝˋ','弦樂':'|ㄩㄝˋ','國樂':'|ㄩㄝˋ','器樂':'|ㄩㄝˋ','聲樂':'|ㄩㄝˋ',
+            // 調 ㄉㄧㄠˋ → ㄊㄧㄠˊ
+            '調整':'ㄊㄧㄠˊ|','調皮':'ㄊㄧㄠˊ|','協調':'|ㄊㄧㄠˊ','空調':'|ㄊㄧㄠˊ','調和':'ㄊㄧㄠˊ|','調味':'ㄊㄧㄠˊ|',
+            '調適':'ㄊㄧㄠˊ|','調節':'ㄊㄧㄠˊ|','調配':'ㄊㄧㄠˊ|','調理':'ㄊㄧㄠˊ|','調解':'ㄊㄧㄠˊ|',
+            // 假 ㄐㄧㄚˇ → ㄐㄧㄚˋ
+            '放假':'|ㄐㄧㄚˋ','寒假':'|ㄐㄧㄚˋ','暑假':'|ㄐㄧㄚˋ','請假':'|ㄐㄧㄚˋ','假日':'ㄐㄧㄚˋ|','休假':'|ㄐㄧㄚˋ',
+            '病假':'|ㄐㄧㄚˋ','事假':'|ㄐㄧㄚˋ','假單':'ㄐㄧㄚˋ|','連假':'|ㄐㄧㄚˋ','假期':'ㄐㄧㄚˋ|','年假':'|ㄐㄧㄚˋ',
+            '補假':'|ㄐㄧㄚˋ','公假':'|ㄐㄧㄚˋ','喪假':'|ㄐㄧㄚˋ','婚假':'|ㄐㄧㄚˋ',
+            // 給 ㄍㄟˇ → ㄐㄧˇ
+            '給予':'ㄐㄧˇ|','供給':'|ㄐㄧˇ','補給':'|ㄐㄧˇ','自給':'|ㄐㄧˇ',
+            // 量 ㄌㄧㄤˊ → ㄌㄧㄤˋ
+            '數量':'|ㄌㄧㄤˋ','大量':'|ㄌㄧㄤˋ','適量':'|ㄌㄧㄤˋ','少量':'|ㄌㄧㄤˋ','份量':'|ㄌㄧㄤˋ','分量':'ㄈㄣˋ|ㄌㄧㄤˋ',
+            '音量':'|ㄌㄧㄤˋ','容量':'|ㄌㄧㄤˋ','能量':'|ㄌㄧㄤˋ','重量':'|ㄌㄧㄤˋ','用量':'|ㄌㄧㄤˋ','食量':'|ㄌㄧㄤˋ',
+            '雨量':'|ㄌㄧㄤˋ','力量':'|ㄌㄧㄤˋ','盡量':'|ㄌㄧㄤˋ','儘量':'|ㄌㄧㄤˋ','商量':'|˙ㄌㄧㄤ',
+            // 少 ㄕㄠˇ → ㄕㄠˋ
+            '少年':'ㄕㄠˋ|','少女':'ㄕㄠˋ|','青少年':'|ㄕㄠˋ|','少棒':'ㄕㄠˋ|',
+            // 好 ㄏㄠˇ → ㄏㄠˋ
+            '愛好':'|ㄏㄠˋ','喜好':'|ㄏㄠˋ','好奇':'ㄏㄠˋ|','嗜好':'|ㄏㄠˋ','好學':'ㄏㄠˋ|','好客':'ㄏㄠˋ|','好動':'ㄏㄠˋ|',
+            // 為 ㄨㄟˊ → ㄨㄟˋ
+            '因為':'|ㄨㄟˋ','為了':'ㄨㄟˋ|','為何':'ㄨㄟˋ|','為什麼':'ㄨㄟˋ||','為此':'ㄨㄟˋ|',
+            // 了 ˙ㄌㄜ → ㄌㄧㄠˇ
+            '了解':'ㄌㄧㄠˇ|','了不起':'ㄌㄧㄠˇ||','受不了':'||ㄌㄧㄠˇ','不得了':'||ㄌㄧㄠˇ','免不了':'||ㄌㄧㄠˇ','少不了':'||ㄌㄧㄠˇ',
+            // 著 ˙ㄓㄜ
+            '著作':'ㄓㄨˋ|','顯著':'|ㄓㄨˋ','著名':'ㄓㄨˋ|','名著':'|ㄓㄨˋ','原著':'|ㄓㄨˋ',
+            '睡著':'|ㄓㄠˊ','著急':'ㄓㄠˊ|','著火':'ㄓㄠˊ|','著涼':'ㄓㄠˊ|','著迷':'ㄓㄠˊ|',
+            '穿著':'|ㄓㄨㄛˊ','衣著':'|ㄓㄨㄛˊ','著手':'ㄓㄨㄛˊ|','著陸':'ㄓㄨㄛˊ|','執著':'|ㄓㄨㄛˊ','沉著':'|ㄓㄨㄛˊ','附著':'|ㄓㄨㄛˊ',
+            // 差
+            '出差':'|ㄔㄞ','參差':'ㄘㄣ|ㄘ',
+            // 應 ㄧㄥ → ㄧㄥˋ
+            '應用':'ㄧㄥˋ|','回應':'|ㄧㄥˋ','反應':'|ㄧㄥˋ','適應':'|ㄧㄥˋ','供應':'|ㄧㄥˋ','因應':'|ㄧㄥˋ','響應':'|ㄧㄥˋ',
+            '對應':'|ㄧㄥˋ','呼應':'|ㄧㄥˋ','照應':'|ㄧㄥˋ','相應':'|ㄧㄥˋ',
+            // 處 ㄔㄨˇ → ㄔㄨˋ
+            '好處':'|ㄔㄨˋ','到處':'|ㄔㄨˋ','處處':'ㄔㄨˋ|ㄔㄨˋ','住處':'|ㄔㄨˋ','益處':'|ㄔㄨˋ','用處':'|ㄔㄨˋ',
+            '學務處':'||ㄔㄨˋ','教務處':'||ㄔㄨˋ','總務處':'||ㄔㄨˋ','輔導處':'||ㄔㄨˋ','處室':'ㄔㄨˋ|','各處':'|ㄔㄨˋ',
+            '短處':'|ㄔㄨˋ','難處':'|ㄔㄨˋ','出處':'|ㄔㄨˋ','辦事處':'||ㄔㄨˋ','處分':'|ㄈㄣˋ',
+            // 其他
+            '投降':'|ㄒㄧㄤˊ','傳記':'ㄓㄨㄢˋ|','自傳':'|ㄓㄨㄢˋ',
+            '種植':'ㄓㄨㄥˋ|','種樹':'ㄓㄨㄥˋ|','種花':'ㄓㄨㄥˋ|','種菜':'ㄓㄨㄥˋ|','種田':'ㄓㄨㄥˋ|','栽種':'|ㄓㄨㄥˋ','耕種':'|ㄓㄨㄥˋ',
+            '睡覺':'|ㄐㄧㄠˋ','午覺':'|ㄐㄧㄠˋ',
+            '高興':'|ㄒㄧㄥˋ','興趣':'ㄒㄧㄥˋ|','興致':'ㄒㄧㄥˋ|','即興':'|ㄒㄧㄥˋ','盡興':'|ㄒㄧㄥˋ','掃興':'|ㄒㄧㄥˋ',
+            '教書':'ㄐㄧㄠ|',
+            '照相':'|ㄒㄧㄤˋ','相片':'ㄒㄧㄤˋ|','相機':'ㄒㄧㄤˋ|','相簿':'ㄒㄧㄤˋ|','首相':'|ㄒㄧㄤˋ','真相':'|ㄒㄧㄤˋ',
+            '間隔':'ㄐㄧㄢˋ|','間斷':'ㄐㄧㄢˋ|','間接':'ㄐㄧㄢˋ|',
+            '部分':'|ㄈㄣˋ','成分':'|ㄈㄣˋ','身分':'|ㄈㄣˋ','水分':'|ㄈㄣˋ','養分':'|ㄈㄣˋ','本分':'|ㄈㄣˋ','過分':'|ㄈㄣˋ',
+            '中獎':'ㄓㄨㄥˋ|','打中':'|ㄓㄨㄥˋ','看中':'|ㄓㄨㄥˋ','猜中':'|ㄓㄨㄥˋ','命中':'|ㄓㄨㄥˋ','中暑':'ㄓㄨㄥˋ|',
+            '中毒':'ㄓㄨㄥˋ|','考中':'|ㄓㄨㄥˋ','選中':'|ㄓㄨㄥˋ',
+            '暖和':'|˙ㄏㄨㄛ','附和':'|ㄏㄜˋ',
+            '要求':'ㄧㄠ|','會計':'ㄎㄨㄞˋ|',
+            '更加':'ㄍㄥˋ|','更好':'ㄍㄥˋ|','更多':'ㄍㄥˋ|','更能':'ㄍㄥˋ|','更有':'ㄍㄥˋ|','更是':'ㄍㄥˋ|','更為':'ㄍㄥˋ|',
+            '更要':'ㄍㄥˋ|','更大':'ㄍㄥˋ|','更快':'ㄍㄥˋ|','更高':'ㄍㄥˋ|',
+            '反省':'|ㄒㄧㄥˇ','省思':'ㄒㄧㄥˇ|','自省':'|ㄒㄧㄥˇ','正月':'ㄓㄥ|',
+            '適當':'|ㄉㄤˋ','恰當':'|ㄉㄤˋ','妥當':'|ㄉㄤˋ','當作':'ㄉㄤˋ|','當成':'ㄉㄤˋ|','上當':'|ㄉㄤˋ','當真':'ㄉㄤˋ|',
+            '背包':'ㄅㄟ|','背書包':'ㄅㄟ||','背負':'ㄅㄟ|',
+            '露出':'ㄌㄡˋ|','露臉':'ㄌㄡˋ|','露面':'ㄌㄡˋ|',
+            '載送':'ㄗㄞˋ|','下載':'|ㄗㄞˋ','運載':'|ㄗㄞˋ','載客':'ㄗㄞˋ|','載運':'ㄗㄞˋ|','裝載':'|ㄗㄞˋ','承載':'|ㄗㄞˋ',
+            '人參':'|ㄕㄣ',
+            '有空':'|ㄎㄨㄥˋ','空白':'ㄎㄨㄥˋ|','空格':'ㄎㄨㄥˋ|','空閒':'ㄎㄨㄥˋ|','空檔':'ㄎㄨㄥˋ|',
+        };
+
+        // 去掉注音後仍能用「同款楷體」畫出的字（其餘字會用系統楷體代替）
+        const PLAIN_CHARS = new Set(Array.from('__PLAIN_CHARS__'));
+
+        const DICT_KEYS = Object.keys(POLYPHONE_DICT).sort((a, b) => b.length - a.length);
+        const DICT_MAX = DICT_KEYS.length ? DICT_KEYS[0].length : 0;
+        const ZY_RE = /([㐀-鿿豈-﫿])[（(]\s*([˙]?[ㄅ-ㄩ]+[ˊˇˋ˙]?)\s*[）)]/g;
+
+        const iconEmojis = {
+            '📚':'📚','✏️':'✏️','⭐':'⭐','🍃':'🍃','🎒':'🎒','🏫':'🏫',
+            '🍎':'🍎','🏆':'🏆','💡':'💡','📢':'📢','📌':'📌','none':''
+        };
+
+        const defaultQuickInput = `標題：六福村校外教學通知
+內容：親愛的家長您好：
+本校將於下週五舉辦秋季校外教學，請孩子準備背包與午餐。
+集合時間：上午 7:30 於學校操場
+請攜帶水壺及防曬用品，天氣炎熱請注意避免中暑。
+回條：[]參加　[]不參加　學生姓名：______　家長簽名：______
+署名：三年二班導師 敬上`;
+
+        const els = {
+            quickInput: document.getElementById('quick-input'),
+            title: document.getElementById('field-title'),
+            content: document.getElementById('field-content'),
+            reply: document.getElementById('field-reply'),
+            sign: document.getElementById('field-sign'),
+            radiosLayout: document.getElementsByName('layout'),
+            selectIcon: document.getElementById('setting-icon'),
+            sliderFontSize: document.getElementById('setting-font-size'),
+            chkPhonetic: document.getElementById('setting-phonetic'),
+            chkAutofix: document.getElementById('setting-autofix'),
+            chkAutofit: document.getElementById('setting-autofit'),
+            phoneticOptions: document.getElementById('phonetic-options'),
+            zyReport: document.getElementById('zy-report'),
+            lblFontSize: document.getElementById('font-size-label'),
+            hintFontSize: document.getElementById('font-size-hint'),
+            canvas: document.getElementById('a4-canvas'),
+            sizer: document.getElementById('a4-sizer'),
+            wrapper: document.getElementById('preview-wrapper'),
+            warning: document.getElementById('overflow-warning'),
+            warningText: document.getElementById('overflow-text'),
+            fontLoading: document.getElementById('font-loading')
+        };
+
+        // 各版型的字級上限（自動模式不會超過）
+        const LAYOUT_MAX = { 1: 28, 2: 22, 4: 16, 6: 13 };
+        const MIN_FONT = 7;
+
+        // ================= 文字處理 =================
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, t => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[t]));
+        }
+
+        // 把文字切成 [{t:'文字'}, {ch:'長', zy:'ㄓㄤˇ', auto:true}] 這種片段
+        function tokenize(str, phonetic, autofix, report) {
+            const out = [];
+            let last = 0, m;
+            ZY_RE.lastIndex = 0;
+            const pushText = (s) => {
+                if (!s) return;
+                if (!(phonetic && autofix)) { out.push({ t: s }); return; }
+                let buf = '', i = 0;
+                while (i < s.length) {
+                    let hit = null;
+                    for (let len = Math.min(DICT_MAX, s.length - i); len >= 2; len--) {
+                        const w = s.substr(i, len);
+                        if (POLYPHONE_DICT[w]) { hit = w; break; }
+                    }
+                    if (!hit) { buf += s[i]; i++; continue; }
+                    if (buf) { out.push({ t: buf }); buf = ''; }
+                    const readings = POLYPHONE_DICT[hit].split('|');
+                    Array.from(hit).forEach((ch, k) => {
+                        if (readings[k]) out.push({ ch, zy: readings[k], auto: true });
+                        else out.push({ t: ch });
+                    });
+                    report[hit] = (report[hit] || 0) + 1;
+                    i += hit.length;
+                }
+                if (buf) out.push({ t: buf });
+            };
+            while ((m = ZY_RE.exec(str)) !== null) {
+                pushText(str.slice(last, m.index));
+                out.push({ ch: m[1], zy: m[2] });
+                last = ZY_RE.lastIndex;
+            }
+            pushText(str.slice(last));
+            return out;
+        }
+
+        // 注音欄的幾何數值：直接量測王漢宗字型內建注音的位置（單位：1/1024 字寬，y 為基線以上）
+        const ZY_GEO = {
+            symX: 1172, toneX: 1405,
+            scale: { 1: 0.36, 2: 0.34, 3: 0.31 },          // 注音符號縮放比例（依符號數）
+            center: { 1: 327, 2: 316, 3: 318 },             // 整欄中心高度
+            pitch: { 1: 0, 2: 314, 3: 283 },                // 符號間距
+            toneScale: 0.6, lightScale: 0.68,
+            symMid: 0.303,        // 注音符號字形中心在基線上方多少（em）
+            toneMid: 0.745,       // 聲調符號字形中心在基線上方多少（em）
+            imgTop: 900, imgBottom: -200, imgLeft: 1024, imgW: 512   // 圖片涵蓋範圍
+        };
+        const ZY_RES = 240;       // 每個字寬畫幾個像素（愈大愈清楚）
+        const zyCache = new Map();
+
+        function drawZhuyin(zy) {
+            if (zyCache.has(zy)) return zyCache.get(zy);
+            const G = ZY_GEO, R = ZY_RES;
+            let light = false, body = zy, tone = '';
+            if (body[0] === '˙') { light = true; body = body.slice(1); }
+            if (/[ˊˇˋ]$/.test(body)) { tone = body.slice(-1); body = body.slice(0, -1); }
+            const syms = Array.from(body);
+            const n = Math.min(Math.max(syms.length, 1), 3);
+            const s = G.scale[n], pitch = G.pitch[n], c = G.center[n];
+            const ys = syms.map((_, i) => c + ((n - 1) / 2 - i) * pitch);
+
+            const cv = document.createElement('canvas');
+            cv.width = Math.round(G.imgW / 1024 * R);
+            cv.height = Math.round((G.imgTop - G.imgBottom) / 1024 * R);
+            const ctx = cv.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            const put = (txt, cx, cy, scale, mid) => {
+                const px = scale * R;
+                ctx.font = `${px}px HWKaiPlain`;
+                const x = (cx - G.imgLeft) / 1024 * R;
+                const y = (G.imgTop - cy) / 1024 * R + mid * px;   // 由字形中心換算成基線
+                ctx.fillText(txt, x, y);
+            };
+            syms.forEach((sym, i) => put(sym, G.symX, ys[i], s, G.symMid));
+            if (tone) put(tone, G.toneX, n === 1 ? ys[0] - 20 : (ys[n - 1] + ys[n - 2]) / 2, G.toneScale, G.toneMid);
+            if (light) put('˙', G.symX, ys[0] + 228, G.lightScale, G.toneMid);
+            const url = cv.toDataURL('image/png');
+            zyCache.set(zy, url);
+            return url;
+        }
+
+        function fillZhuyinImages() {
+            els.canvas.querySelectorAll('img.zy-img').forEach(img => {
+                img.src = drawZhuyin(img.dataset.zy);
+            });
+        }
+
+        function zhuyinHTML(ch, zy) {
+            const warn = PLAIN_CHARS.has(ch) ? '' : ' zy-warn';
+            const title = warn ? ' title="此字不在內建楷體字表中，以系統楷體顯示"' : '';
+            return `<span class="zy${warn}"${title}><span class="zy-ch">${escapeHTML(ch)}</span><img class="zy-img" data-zy="${escapeHTML(zy)}" alt=""></span>`;
+        }
+
+        function formatText(str, ctx) {
+            const tokens = tokenize(str, ctx.phonetic, ctx.autofix, ctx.report);
+            return tokens.map(tok => {
+                if (tok.t !== undefined) return escapeHTML(tok.t).replace(/\[\]/g, '☐');
+                if (!ctx.phonetic) return escapeHTML(tok.ch);   // 非注音模式：只留字，拿掉括號注音
+                return zhuyinHTML(tok.ch, tok.zy);
+            }).join('');
+        }
+
+        // ================= 一鍵貼上 =================
+        function parseQuickInput(text) {
+            if (!text.trim()) return;
+            const tTitle = text.match(/標題[：:](.*)/);
+            const tContent = text.match(/內容[：:]([\s\S]*?)(?=回條[：:]|署名[：:]|$)/);
+            const tReply = text.match(/回條[：:]([\s\S]*?)(?=署名[：:]|$)/);
+            const tSign = text.match(/署名[：:](.*)/);
+            if (tTitle) els.title.value = tTitle[1].trim();
+            if (tContent) els.content.value = tContent[1].trim();
+            if (tReply) els.reply.value = tReply[1].trim();
+            if (tSign) els.sign.value = tSign[1].trim();
+            renderPreview();
+        }
+
+        // ================= 預覽縮放 =================
+        function adjustScale() {
+            const a4W = els.canvas.offsetWidth, a4H = els.canvas.offsetHeight;
+            const availW = els.wrapper.clientWidth - 48;
+            const availH = els.wrapper.clientHeight - 48;
+            const scale = Math.max(0.2, Math.min(availW / a4W, availH / a4H, 0.95));
+            els.canvas.style.transform = `scale(${scale})`;
+            els.sizer.style.width = (a4W * scale) + 'px';
+            els.sizer.style.height = (a4H * scale) + 'px';
+        }
+
+        // ================= 版面 =================
+        function getLayout() {
+            for (const r of els.radiosLayout) if (r.checked) return parseInt(r.value);
+            return 2;
+        }
+
+        function isOverflowing() {
+            const box = els.canvas.querySelector('.inner-box');
+            if (!box) return false;
+            return box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1;
+        }
+
+        function setFontSize(px) {
+            els.canvas.style.setProperty('--base-font-size', px + 'px');
+        }
+
+        // 自動模式：二分搜尋「剛好塞得下」的最大字級
+        function fitFontSize(layout) {
+            const maxPx = LAYOUT_MAX[layout];
+            if (!els.chkAutofit.checked) {
+                const px = parseFloat(els.sliderFontSize.value);
+                setFontSize(px);
+                return { px, overflow: isOverflowing() };
+            }
+            setFontSize(maxPx);
+            if (!isOverflowing()) return { px: maxPx, overflow: false };
+            let lo = MIN_FONT, hi = maxPx;
+            setFontSize(lo);
+            if (isOverflowing()) return { px: lo, overflow: true };
+            for (let i = 0; i < 10; i++) {
+                const mid = (lo + hi) / 2;
+                setFontSize(mid);
+                if (isOverflowing()) hi = mid; else lo = mid;
+            }
+            const px = Math.floor(lo * 4) / 4;
+            setFontSize(px);
+            return { px, overflow: false };
+        }
+
+        let renderToken = 0;
+        async function renderPreview() {
+            const myToken = ++renderToken;
+            const layout = getLayout();
+            const phonetic = els.chkPhonetic.checked;
+            const ctx = { phonetic, autofix: els.chkAutofix.checked, report: {} };
+
+            els.phoneticOptions.classList.toggle('hidden', !phonetic);
+
+            const titleStr = formatText(els.title.value, ctx);
+            const contentStr = formatText(els.content.value, ctx);
+            const rawReply = els.reply.value.trim();
+            const hasReply = rawReply && rawReply !== '無';
+            const replyStr = hasReply ? formatText(rawReply, ctx) : '';
+            const signStr = formatText(els.sign.value, ctx);
+
+            const gridClass = {
+                1: 'grid-cols-1 grid-rows-1',
+                2: 'grid-cols-1 grid-rows-2',
+                4: 'grid-cols-2 grid-rows-2',
+                6: 'grid-cols-2 grid-rows-3'
+            }[layout];
+            els.canvas.className = `a4-page ${gridClass} ${phonetic ? 'phonetic-on' : ''}`;
+
+            const selectedEmoji = iconEmojis[els.selectIcon.value] || '';
+            const iconHtml = selectedEmoji ? `<span class="text-[1.2em]" style="font-family:'Noto Sans TC',sans-serif">${selectedEmoji}</span>` : '';
+
+            const replyHtml = hasReply ? `
+                <div class="mt-auto pt-2 shrink-0">
+                    <div class="border-t-[1.5px] border-dashed border-gray-500 mb-2 mt-1"></div>
+                    <div class="card-reply whitespace-pre-wrap text-black break-words">${replyStr}</div>
+                </div>` : '<div class="mt-auto"></div>';
+
+            const cardHtml = `
+                <div class="card-container w-full h-full min-h-0 border-[2.5px] border-black rounded-2xl p-[3px] box-border relative overflow-hidden bg-white">
+                    <div class="inner-box w-full h-full border-[1.5px] border-dashed border-gray-600 rounded-xl p-[1em] flex flex-col box-border overflow-hidden">
+                        <div class="card-title font-black text-center mb-[0.5em] flex items-center justify-center gap-2 border-b-2 border-black pb-[0.3em] shrink-0">
+                            ${iconHtml}<span>${titleStr}</span>
+                        </div>
+                        <div class="card-content whitespace-pre-wrap text-black flex-1 break-words">${contentStr}</div>
+                        ${els.sign.value.trim() ? `<div class="card-sign font-bold text-right mt-[0.6em] shrink-0 text-black">${signStr}</div>` : ''}
+                        ${replyHtml}
+                    </div>
+                </div>`;
+            els.canvas.innerHTML = cardHtml.repeat(layout);
+
+            // 破音字校正報告
+            const entries = Object.entries(ctx.report);
+            if (phonetic && entries.length) {
+                els.zyReport.innerHTML = '已自動校正：' + entries.map(([w, n]) => {
+                    const r = POLYPHONE_DICT[w].split('|');
+                    const detail = Array.from(w).map((c, i) => r[i] ? `${c}${r[i]}` : '').filter(Boolean).join('、');
+                    return `<b>${w}</b>（${detail}）${n > 1 ? '×' + n : ''}`;
+                }).join('　');
+                els.zyReport.classList.remove('hidden');
+            } else {
+                els.zyReport.classList.add('hidden');
+            }
+
+            // 等字型載入完再量尺寸
+            if (phonetic) {
+                const sample = (els.title.value + els.content.value + els.reply.value + els.sign.value).slice(0, 200) || '注';
+                const needLoad = !document.fonts.check(`16px CustomPhoneticFont`, sample);
+                if (needLoad) els.fontLoading.classList.remove('hidden');
+                try {
+                    await Promise.all([
+                        document.fonts.load(`16px CustomPhoneticFont`, sample),
+                        document.fonts.load(`16px HWKaiPlain`, '長ㄓㄤˇ')
+                    ]);
+                } catch (e) {}
+                els.fontLoading.classList.add('hidden');
+                if (myToken !== renderToken) return;
+                fillZhuyinImages();
+            }
+
+            const { px, overflow } = fitFontSize(layout);
+            els.lblFontSize.textContent = px + 'px';
+            els.sliderFontSize.disabled = els.chkAutofit.checked;
+            if (els.chkAutofit.checked) els.sliderFontSize.value = px;
+            els.hintFontSize.textContent = els.chkAutofit.checked ? '自動模式下由系統計算' : '手動調整';
+
+            if (overflow) {
+                els.warningText.textContent = els.chkAutofit.checked
+                    ? '字已縮到最小仍塞不下，請刪減內容或改用較少張的版型。'
+                    : '內容過長，已超出邊界。建議縮小字級或開啟自動調整。';
+                els.warning.classList.remove('hidden');
+            } else {
+                els.warning.classList.add('hidden');
+            }
+            adjustScale();
+        }
+
+        // ================= 下載 PDF =================
+        async function downloadPDF() {
+            const btn = document.getElementById('btn-pdf');
+            const txt = document.getElementById('btn-pdf-text');
+            btn.disabled = true;
+            txt.textContent = '產生中…';
+            try {
+                await renderPreview();
+                await document.fonts.ready;
+                const el = els.canvas;
+                const jpeg = await modernScreenshot.domToJpeg(el, {
+                    scale: 3,                 // 約 290 dpi，印出來文字清楚
+                    quality: 0.92,
+                    backgroundColor: '#ffffff',
+                    width: el.offsetWidth,
+                    height: el.offsetHeight,
+                    style: { transform: 'none', boxShadow: 'none', position: 'static' },
+                    onCloneNode: (clone) => clone.classList.add('exporting')
+                });
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+                pdf.addImage(jpeg, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+                const name = (els.title.value.trim() || '通知單').replace(/[\\/:*?"<>|]/g, '_');
+                pdf.save(`${name}.pdf`);
+            } catch (err) {
+                console.error(err);
+                alert('PDF 產生失敗，請改用 Chrome 開啟此檔案再試一次。');
+            } finally {
+                btn.disabled = false;
+                txt.textContent = '下載 PDF';
+            }
+        }
+
+        // ================= 事件 =================
+        els.quickInput.addEventListener('input', e => parseQuickInput(e.target.value));
+        [els.title, els.content, els.reply, els.sign].forEach(i => i.addEventListener('input', renderPreview));
+        Array.from(els.radiosLayout).forEach(r => r.addEventListener('change', renderPreview));
+        [els.selectIcon, els.chkPhonetic, els.chkAutofix, els.chkAutofit].forEach(e => e.addEventListener('change', renderPreview));
+        els.sliderFontSize.addEventListener('input', renderPreview);
+        window.addEventListener('resize', adjustScale);
+        document.fonts.addEventListener('loadingdone', () => renderPreview());
+
+        function init() {
+            els.quickInput.value = defaultQuickInput;
+            parseQuickInput(defaultQuickInput);
+        }
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
